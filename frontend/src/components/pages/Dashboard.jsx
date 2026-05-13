@@ -18,6 +18,16 @@ month: 'long',
 day: 'numeric'
 })}`}
 </Typography>
+<Box
+          component="img"
+          src="icon.jpeg"
+          alt="Logo Comandas do Zé"
+          sx={{
+            mt: 3,
+            width: 200,
+            borderRadius: 50
+          }}
+        />
 </Box>
 </PageLayout>
 );

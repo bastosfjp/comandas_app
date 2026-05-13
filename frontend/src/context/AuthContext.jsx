@@ -1,49 +1,74 @@
-import { createContext, useState, useContext } from "react";
+import { createContext, useState, useContext, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import showSnackbar from "../utils/snackbar";
-
+import { authService } from "../services/authService";
+// Criação do contexto
 const AuthContext = createContext();
-
+// Provedor do contexto
 export const AuthProvider = ({ children }) => {
-  const [isAuthenticated, setIsAuthenticated] = useState(() => {
-    return sessionStorage.getItem("loginRealizado") === "true";
-  });
-  const [usuarioLogado, setUsuarioLogado] = useState(() => {
-    const saved = sessionStorage.getItem("usuarioLogado");
-    return saved ? JSON.parse(saved) : null;
-  });
-
-  // loading é false pois sessionStorage é síncrono
-  const loading = false;
-
-  const navigate = useNavigate();
-
-  const login = (cpf, senha) => {
-    if (cpf === "abc" && senha === "bolinhas") {
-      const usuario = { nome: "Administrador", cpf, grupo: 1, matricula: "0001" };
-      setIsAuthenticated(true);
-      setUsuarioLogado(usuario);
-      sessionStorage.setItem("loginRealizado", "true");
-      sessionStorage.setItem("usuarioLogado", JSON.stringify(usuario));
-      navigate("/home");
-    } else {
-      showSnackbar("Usuário ou senha inválidos!", "error");
-    }
-  };
-
-  const logout = () => {
-    setIsAuthenticated(false);
-    setUsuarioLogado(null);
-    sessionStorage.removeItem("loginRealizado");
-    sessionStorage.removeItem("usuarioLogado");
-    navigate("/login");
-  };
-
-  return (
-    <AuthContext.Provider value={{ isAuthenticated, loading, login, logout, usuarioLogado }}>
-      {children}
-    </AuthContext.Provider>
-  );
+const [isAuthenticated, setIsAuthenticated] = useState(false);
+const [user, setUser] = useState(null);
+const [loading, setLoading] = useState(true);
+const navigate = useNavigate();
+// Verificar autenticação ao carregar o componente
+useEffect(() => {
+const checkAuth = () => {
+if (authService.isAuthenticated()) {
+setIsAuthenticated(true);
+// Buscar dados do usuário logado
+authService.getUserData().then(userData => {
+if (userData) {
+setUser(userData);
+}
+});
+}
+setLoading(false);
+};
+checkAuth();
+}, []);
+// Função para login com API real
+const login = async (cpf, senha) => {
+try {
+setLoading(true);
+// chama o service de autenticação para fazer o login
+const result = await authService.login(cpf, senha);
+if (result.success) {
+setIsAuthenticated(true);
+// Buscar dados do usuário após login
+const userData = await authService.getUserData();
+setUser(userData);
+navigate("/home");
+return true;
+} else {
+// Emite evento para SnackbarGlobal
+window.dispatchEvent(new CustomEvent('showSnackbar', {
+detail: { message: result.error, severity: 'error' }
+}));
+return false;
+}
+} catch (error) {
+console.error('Erro no login:', error);
+window.dispatchEvent(new CustomEvent('showSnackbar', {
+detail: { message: 'Erro ao conectar com o servidor', severity: 'error' }
+}));
+return false;
+} finally {
+setLoading(false);
+}
 };
 
+// Função para logout
+const logout = () => {
+authService.logout();
+setIsAuthenticated(false);
+setUser(null);
+};
+// Objeto com os valores e funções do contexto
+const value = { isAuthenticated, user, loading, login, logout, isTokenExpiringSoon: authService.isTokenExpiringSoon(),};
+return (
+<AuthContext.Provider value={value}>
+{children}
+</AuthContext.Provider>
+);
+};
+// Hook para usar o contexto
 export const useAuth = () => useContext(AuthContext);
