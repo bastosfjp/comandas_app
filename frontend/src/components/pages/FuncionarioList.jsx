@@ -1,36 +1,59 @@
+﻿import { useEffect, useState } from "react";
 import {
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper,
   Button, Card, CardContent, Typography, Box, Divider, Chip,
 } from "@mui/material";
-import { FiberNew, People } from "@mui/icons-material";
+import { FiberNew } from "@mui/icons-material";
 import { useNavigate } from "react-router-dom";
 import PageLayout from "../common/PageLayout";
 import ActionButtons from "../common/ActionButtons";
 import showConfirm from "../../utils/confirm";
 import showSnackbar from "../../utils/snackbar";
+import { funcionarioService } from "../../services/funcionarioService";
 
 const grupos = { 1: "Administrador", 2: "Gerente", 3: "Atendente", 4: "Cozinha" };
 const grupoColor = { 1: "error", 2: "warning", 3: "primary", 4: "success" };
 
-const funcionarios = [
-  { id: 1, nome: "João Pedro Bastos Fernandes", matricula: "00001", cpf: "111.111.111-11", telefone: "(49) 99999-0001", grupo: 1 },
-  { id: 2, nome: "Tio Lu da Silva Sauro", matricula: "00002", cpf: "222.222.222-22", telefone: "(49) 98888-0002", grupo: 3 },
-  { id: 3, nome: "Marcelinho Beira Mar Jr", matricula: "00003", cpf: "333.333.333-33", telefone: "(49) 97777-0003", grupo: 4 },
-];
-
 function FuncionarioList() {
   const navigate = useNavigate();
+  const [funcionarios, setFuncionarios] = useState([]);
+  const [loading, setLoading] = useState(false);
 
-  const handleView = (item) => showSnackbar(`Visualizando: ${item.nome}`, "info");
-  const handleEdit = (item) => navigate(`/funcionario/${item.id}`);
+  const loadFuncionarios = async () => {
+    try {
+      setLoading(true);
+      const data = await funcionarioService.list();
+      setFuncionarios(Array.isArray(data) ? data : []);
+    } catch (error) {
+      showSnackbar('Erro ao carregar funcionários', 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadFuncionarios();
+  }, []);
+
+  const getItemId = (item) => item?.id ?? item?._id;
+  const handleView = (item) => navigate(`/funcionario/view/${getItemId(item)}`);
+  const handleEdit = (item) => navigate(`/funcionario/edit/${getItemId(item)}`);
   const handleDelete = (item) =>
-    showConfirm("Excluir funcionário", `Deseja excluir ${item.nome}?`, () =>
-      showSnackbar(`${item.nome} excluído!`, "success")
-    );
+    showConfirm("Excluir funcionário", `Deseja excluir ${item.nome}?`, async () => {
+      try {
+        const id = getItemId(item);
+        await funcionarioService.delete(id);
+        setFuncionarios((prev) => prev.filter((f) => getItemId(f) !== id));
+        showSnackbar(`${item.nome} excluído com sucesso!`, "success");
+      } catch (error) {
+        showSnackbar('Erro ao excluir funcionário', 'error');
+      }
+    });
 
   const actions = (
     <Button
-      variant="contained" color="secondary"
+      variant="contained"
+      color="secondary"
       onClick={() => navigate("/funcionario")}
       startIcon={<FiberNew />}
       sx={{ fontWeight: 600 }}
@@ -40,7 +63,7 @@ function FuncionarioList() {
   );
 
   const renderDesktop = (f) => (
-    <TableRow key={f.id} hover>
+    <TableRow key={getItemId(f)} hover>
       <TableCell>{f.id}</TableCell>
       <TableCell sx={{ fontWeight: 500 }}>{f.nome}</TableCell>
       <TableCell>{f.matricula}</TableCell>
@@ -56,7 +79,7 @@ function FuncionarioList() {
   );
 
   const renderMobile = (f) => (
-    <Card key={f.id} sx={{ mb: 2 }}>
+    <Card key={getItemId(f)} sx={{ mb: 2 }}>
       <CardContent sx={{ p: 2 }}>
         <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", mb: 1 }}>
           <Box>
@@ -77,23 +100,29 @@ function FuncionarioList() {
 
   return (
     <PageLayout title="Funcionários" actions={actions}>
-      <Box sx={{ display: { xs: "none", md: "block" } }}>
-        <TableContainer component={Paper}>
-          <Table>
-            <TableHead>
-              <TableRow>
-                {["ID", "Nome", "Matrícula", "CPF", "Telefone", "Grupo", "Ações"].map((h) => (
-                  <TableCell key={h} sx={{ fontWeight: 600 }}>{h}</TableCell>
-                ))}
-              </TableRow>
-            </TableHead>
-            <TableBody>{funcionarios.map(renderDesktop)}</TableBody>
-          </Table>
-        </TableContainer>
-      </Box>
-      <Box sx={{ display: { xs: "block", md: "none" } }}>
-        {funcionarios.map(renderMobile)}
-      </Box>
+      {loading ? (
+        <Typography align="center" sx={{ py: 4 }}>Carregando funcionários...</Typography>
+      ) : (
+        <>
+          <Box sx={{ display: { xs: "none", md: "block" } }}>
+            <TableContainer component={Paper}>
+              <Table>
+                <TableHead>
+                  <TableRow>
+                    {["ID", "Nome", "Matrícula", "CPF", "Telefone", "Grupo", "Ações"].map((h) => (
+                      <TableCell key={h} sx={{ fontWeight: 600 }}>{h}</TableCell>
+                    ))}
+                  </TableRow>
+                </TableHead>
+                <TableBody>{funcionarios.map(renderDesktop)}</TableBody>
+              </Table>
+            </TableContainer>
+          </Box>
+          <Box sx={{ display: { xs: "block", md: "none" } }}>
+            {funcionarios.map(renderMobile)}
+          </Box>
+        </>
+      )}
     </PageLayout>
   );
 }

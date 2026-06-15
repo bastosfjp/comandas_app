@@ -1,3 +1,4 @@
+﻿import { useEffect, useState } from "react";
 import {
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper,
   Button, Card, CardContent, Typography, Box, Divider,
@@ -8,26 +9,48 @@ import PageLayout from "../common/PageLayout";
 import ActionButtons from "../common/ActionButtons";
 import showConfirm from "../../utils/confirm";
 import showSnackbar from "../../utils/snackbar";
-
-const clientes = [
-  { id: 1, nome: "João Não o Bastos Fernandes", cpf: "444.444.444-44", telefone: "(49) 99111-2233" },
-  { id: 2, nome: "Doc Brown", cpf: "555.555.555-55", telefone: "(49) 98222-3344" },
-  { id: 3, nome: "Alexandre o Grande", cpf: "666.666.666-66", telefone: "(49) 97333-4455" },
-];
+import { clienteService } from "../../services/clienteService";
 
 function ClienteList() {
   const navigate = useNavigate();
+  const [clientes, setClientes] = useState([]);
+  const [loading, setLoading] = useState(false);
 
-  const handleView = (item) => showSnackbar(`Visualizando: ${item.nome}`, "info");
-  const handleEdit = (item) => navigate(`/cliente/${item.id}`);
+  const loadClientes = async () => {
+    try {
+      setLoading(true);
+      const data = await clienteService.list();
+      setClientes(Array.isArray(data) ? data : []);
+    } catch (error) {
+      showSnackbar('Erro ao carregar clientes', 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadClientes();
+  }, []);
+
+  const getItemId = (item) => item?.id ?? item?._id;
+  const handleView = (item) => navigate(`/cliente/view/${getItemId(item)}`);
+  const handleEdit = (item) => navigate(`/cliente/edit/${getItemId(item)}`);
   const handleDelete = (item) =>
-    showConfirm("Excluir cliente", `Deseja excluir ${item.nome}?`, () =>
-      showSnackbar(`${item.nome} excluído!`, "success")
-    );
+    showConfirm("Excluir cliente", `Deseja excluir ${item.nome}?`, async () => {
+      try {
+        const id = getItemId(item);
+        await clienteService.delete(id);
+        setClientes((prev) => prev.filter((c) => getItemId(c) !== id));
+        showSnackbar(`${item.nome} excluído com sucesso!`, "success");
+      } catch (error) {
+        showSnackbar('Erro ao excluir cliente', 'error');
+      }
+    });
 
   const actions = (
     <Button
-      variant="contained" color="secondary"
+      variant="contained"
+      color="secondary"
       onClick={() => navigate("/cliente")}
       startIcon={<FiberNew />}
       sx={{ fontWeight: 600 }}
@@ -37,7 +60,7 @@ function ClienteList() {
   );
 
   const renderDesktop = (c) => (
-    <TableRow key={c.id} hover>
+    <TableRow key={getItemId(c)} hover>
       <TableCell>{c.id}</TableCell>
       <TableCell sx={{ fontWeight: 500 }}>{c.nome}</TableCell>
       <TableCell>{c.cpf}</TableCell>
@@ -49,7 +72,7 @@ function ClienteList() {
   );
 
   const renderMobile = (c) => (
-    <Card key={c.id} sx={{ mb: 2 }}>
+    <Card key={getItemId(c)} sx={{ mb: 2 }}>
       <CardContent sx={{ p: 2 }}>
         <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 1 }}>
           <Box>
@@ -69,23 +92,29 @@ function ClienteList() {
 
   return (
     <PageLayout title="Clientes" actions={actions}>
-      <Box sx={{ display: { xs: "none", md: "block" } }}>
-        <TableContainer component={Paper}>
-          <Table>
-            <TableHead>
-              <TableRow>
-                {["ID", "Nome", "CPF", "Telefone", "Ações"].map((h) => (
-                  <TableCell key={h} sx={{ fontWeight: 600 }}>{h}</TableCell>
-                ))}
-              </TableRow>
-            </TableHead>
-            <TableBody>{clientes.map(renderDesktop)}</TableBody>
-          </Table>
-        </TableContainer>
-      </Box>
-      <Box sx={{ display: { xs: "block", md: "none" } }}>
-        {clientes.map(renderMobile)}
-      </Box>
+      {loading ? (
+        <Typography align="center" sx={{ py: 4 }}>Carregando clientes...</Typography>
+      ) : (
+        <>
+          <Box sx={{ display: { xs: "none", md: "block" } }}>
+            <TableContainer component={Paper}>
+              <Table>
+                <TableHead>
+                  <TableRow>
+                    {["ID", "Nome", "CPF", "Telefone", "Ações"].map((h) => (
+                      <TableCell key={h} sx={{ fontWeight: 600 }}>{h}</TableCell>
+                    ))}
+                  </TableRow>
+                </TableHead>
+                <TableBody>{clientes.map(renderDesktop)}</TableBody>
+              </Table>
+            </TableContainer>
+          </Box>
+          <Box sx={{ display: { xs: "block", md: "none" } }}>
+            {clientes.map(renderMobile)}
+          </Box>
+        </>
+      )}
     </PageLayout>
   );
 }

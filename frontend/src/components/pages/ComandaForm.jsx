@@ -1,131 +1,305 @@
-import { useEffect, useRef } from "react";
 import { useForm, Controller } from "react-hook-form";
-import { TextField, Button, Box, MenuItem, InputAdornment } from "@mui/material";
-import { Receipt, Person, SupervisorAccount } from "@mui/icons-material";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
+import { useState, useEffect } from "react";
+import { TextField, Button, Box, CircularProgress } from "@mui/material";
 import PageLayout from "../common/PageLayout";
+
 import { useValidationRules } from "../../hooks/useValidationRules";
 
-const statusOpcoes = [
-  { value: 1, label: "Aberta" },
-  { value: 2, label: "Em atendimento" },
-  { value: 3, label: "Fechada" },
-  { value: 4, label: "Cancelada" },
-];
+import comandaService from "../../services/comandaService";
 
-// Mock de funcionários e clientes para o select
-const funcionariosMock = [
-  { id: 1, nome: "João Pedro Bastos Fernandes" },
-  { id: 2, nome: "Darth Vader de Lima" },
-];
-const clientesMock = [
-  { id: 1, nome: "Tio Lu Coelho da Silva Sauro" },
-  { id: 2, nome: "Shaekespeare da Silva" },
-];
+import showSnackbar from "../../utils/snackbar";
 
+import { useAuth } from "../../context/AuthContext";
+
+import ComandaValidator, {
+    useComandaValidation
+} from "../common/ComandaValidator";
+// Definição do componente ComandaForm
 const ComandaForm = () => {
-  const { control, handleSubmit, formState: { errors } } = useForm();
-  const rules = useValidationRules();
-  const navigate = useNavigate();
-  const comandaRef = useRef(null);
-
-  useEffect(() => {
-    setTimeout(() => comandaRef.current?.focus(), 100);
-  }, []);
-
-  const onSubmit = (data) => console.log("Dados da comanda:", data);
-
-  const fieldSx = {
-    "& .MuiOutlinedInput-root": {
-      "&.Mui-focused fieldset": { borderColor: "#f59e0b", borderWidth: 2 },
-      "&.Mui-focused": { backgroundColor: "rgba(245,158,11,0.04)" },
+  // Hooks de navegação e parâmetros
+  const { id, opr } = useParams(); // Parâmetros da URL: id e operação (edit/view)
+  const navigate = useNavigate(); // Navegação entre páginas
+  // Hook de autenticação
+  const { user } = useAuth(); // Dados do funcionário logado
+  // Hook de formulário
+  const {
+    control,
+    handleSubmit,
+    formState: { errors, dirtyFields },
+    reset,
+    setError,
+    clearErrors,
+  } = useForm({
+    defaultValues: {
+      comanda: "",
+      data_hora: new Date().toISOString().slice(0, 16),
+      cliente_id: "",
+      funcionario_id: user?.id || "",
     },
-    "& label.Mui-focused": { color: "#f59e0b" },
+  });
+  // Estados do componente
+  const [loading, setLoading] = useState(false); // Estado de carregamento durante salvamento
+  const [loadingData, setLoadingData] = useState(true); // Estado de carregamento de dados iniciais
+  // Configurações e validações
+  const validationRules = useValidationRules(); // Regras de validação dos campos
+  const isReadOnly = opr === "view"; // Modo somente leitura para visualização
+  const title =
+    opr === "view"
+      ? `Visualizar Comanda: ${id}`
+      : id
+        ? `Editar Comanda: ${id}`
+        : "Nova Comanda"; // Título dinâmico
+  // Hook de validação de comanda
+  const {
+    dialog: comandaDialog,
+    validateComanda,
+    closeDialog,
+    clearField,
+  } = useComandaValidation(comandaService, id);
+  // Funções de tratamento do diálogo de comanda em uso
+  const handleDialogCancel = () => {
+    closeDialog();
+    clearField();
+    // Limpa o campo comanda
+    reset((prev) => ({ ...prev, comanda: "" }));
   };
-
+  const handleDialogView = (comanda) => {
+    closeDialog();
+    navigate(`/comanda/view/${comanda.id}`);
+  };
+  const handleDialogEdit = (comanda) => {
+    closeDialog();
+    navigate(`/comanda/edit/${comanda.id}`);
+  };
+  const handleCancel = () => {
+    navigate("/comandas");
+  };
+  // Carregar dados da comanda para edição/visualização
+  useEffect(() => {
+    const loadComanda = async () => {
+      if (id && id !== "new") {
+        try {
+          const data = await comandaService.getById(id);
+          // Formatar data e hora para o formato do input datetime-local
+          if (data.data_hora) {
+            const dataAbertura = new Date(data.data_hora);
+            data.data_hora = dataAbertura.toISOString().slice(0, 16);
+          }
+          reset(data);
+        } catch (error) {
+          const mensagem = error.apiMessage || "Erro ao carregar comanda";
+          showSnackbar(mensagem, "error");
+        } finally {
+          setLoadingData(false);
+        }
+      } else {
+        // Nova comanda - apenas limpar campos
+        reset({
+          comanda: "",
+          cliente_id: "",
+        });
+        setLoadingData(false);
+      }
+    };
+    loadComanda();
+  }, [id, reset]);
+  // Função de salvamento
+  const onSubmit = async (data) => {
+    setLoading(true);
+    try {
+      // Definir status padrão como aberta (0)
+      const comandaData = {
+        comanda: data.comanda,
+        data_hora:
+          id && id !== "new"
+            ? data.data_hora
+            : new Date().toISOString().slice(0, 16), // Usar data atual para novas comandas
+        cliente_id: data.cliente_id || null, // Enviar null em vez de string vazia
+        funcionario_id:
+          id && id !== "new" ? data.funcionario_id : user?.id || "", // Usar usuário logado para novas comandas
+        status: 0, // Status: aberta
+      };
+      let savedComanda;
+      if (id && id !== "new") {
+        // Atualizar comanda existente
+        savedComanda = await comandaService.update(id, comandaData);
+        showSnackbar("Comanda atualizada com sucesso!", "success");
+      } else {
+        // Criar nova comanda
+        savedComanda = await comandaService.create(comandaData);
+        showSnackbar("Comanda aberta com sucesso!", "success");
+      }
+      // Navegar para a lista de comandas
+      navigate("/comandas");
+    } catch (error) {
+      const mensagem = error.apiMessage || "Erro ao salvar comanda";
+      console.error("Erro ao salvar comanda:", error);
+      showSnackbar(mensagem, "error");
+    } finally {
+      setLoading(false);
+    }
+  };
+  // Renderizar loading de dados
+  if (loadingData) {
+    return (
+      <PageLayout title={title}>
+        <Box
+          sx={{
+            display: "flex",
+            justifyContent: "center",
+            alignItems: "center",
+            minHeight: "60vh",
+          }}
+        >
+          <CircularProgress />
+        </Box>
+      </PageLayout>
+    );
+  }
+  // renderizar formulário - return
   return (
-    <PageLayout title="Nova Comanda">
-      <Box component="form" onSubmit={handleSubmit(onSubmit)} noValidate>
-
+    <PageLayout title={title}>
+      <Box
+        component="form"
+        onSubmit={handleSubmit(onSubmit)}
+        sx={{ maxWidth: 600, mx: "auto" }}
+      >
+        {/* Campo Número da Comanda */}
         <Controller
-          name="comanda" control={control} defaultValue=""
-          rules={rules.comanda}
+          name="comanda"
+          control={control}
+          rules={{
+            required: validationRules.required,
+            pattern: {
+              value: /^[0-9]+$/,
+              message: "A comanda deve conter apenas números",
+            },
+          }}
           render={({ field }) => (
             <TextField
-              {...field} inputRef={comandaRef}
-              label="Número da Comanda" fullWidth margin="normal"
-              placeholder="Ex: 001"
-              title="Número identificador da comanda"
-              inputProps={{ maxLength: 50 }}
-              error={!!errors.comanda} helperText={errors.comanda?.message}
-              InputProps={{ startAdornment: <InputAdornment position="start"><Receipt fontSize="small" /></InputAdornment> }}
-              sx={fieldSx}
+              {...field}
+              value={field.value || ""}
+              fullWidth
+              label="Comanda"
+              margin="normal"
+              error={!!errors.comanda}
+              helperText={
+                errors.comanda?.message ||
+                "Número da comanda deve ser único e estar disponível"
+              }
+              disabled={loading || isReadOnly}
+              type="number"
+              onBlur={() => {
+                if (!isReadOnly) {
+                  // Só validar se for nova comanda ou se o valor foi alterado
+                  const isNovaComanda = !id || id === "new";
+                  // Se não foi alterado, não validar
+                  if (isNovaComanda || dirtyFields.comanda) {
+                    validateComanda(field.value);
+                  }
+                }
+              }}
+            />
+          )}
+        />
+        {/* Campo Data e Hora (apenas visualização) */}
+        {isReadOnly && (
+          <Controller
+            name="data_hora"
+            control={control}
+            render={({ field }) => (
+              <TextField
+                {...field}
+                value={
+                  field.value
+                    ? new Date(field.value).toLocaleString("pt-BR")
+                    : ""
+                }
+                fullWidth
+                label="Data e Hora de Abertura"
+                margin="normal"
+                disabled={true}
+              />
+            )}
+          />
+        )}
+        {/* Campo Funcionário (apenas visualização) */}
+        {isReadOnly && (
+          <Controller
+            name="funcionario_id"
+            control={control}
+            render={({ field }) => (
+              <TextField
+                {...field}
+                value={`ID: ${field.value || "N/A"} - ${user?.nome || "Funcionário"}`}
+                fullWidth
+                label="Funcionário Responsável"
+                margin="normal"
+                disabled={true}
+              />
+            )}
+          />
+        )}
+        {/* Campo Identificação do Cliente (opcional) */}
+        <Controller
+          name="cliente_id"
+          control={control}
+          render={({ field }) => (
+            <TextField
+              {...field}
+              value={field.value || ""}
+              fullWidth
+              label="Identificação do Cliente (opcional)"
+              margin="normal"
+              placeholder="Nome do cliente ou observações"
+              error={!!errors.cliente_id}
+              helperText={errors.cliente_id?.message}
+              disabled={loading || isReadOnly}
             />
           )}
         />
 
-        <Controller
-          name="status" control={control} defaultValue={1}
-          rules={{ required: "Status é obrigatório" }}
-          render={({ field }) => (
-            <TextField
-              {...field} select
-              label="Status" fullWidth margin="normal"
-              title="Status atual da comanda"
-              error={!!errors.status} helperText={errors.status?.message}
-              sx={fieldSx}
+        {/* Botões de ação */}
+        {!isReadOnly && (
+          <Box
+            sx={{ mt: 3, display: "flex", gap: 2, justifyContent: "flex-end" }}
+          >
+            <Button
+              variant="outlined"
+              onClick={handleCancel}
+              disabled={loading}
             >
-              {statusOpcoes.map((s) => (
-                <MenuItem key={s.value} value={s.value}>{s.label}</MenuItem>
-              ))}
-            </TextField>
-          )}
-        />
-
-        <Controller
-          name="funcionario_id" control={control} defaultValue=""
-          rules={{ required: "Funcionário responsável é obrigatório" }}
-          render={({ field }) => (
-            <TextField
-              {...field} select
-              label="Funcionário Responsável" fullWidth margin="normal"
-              title="Funcionário que abriu a comanda"
-              error={!!errors.funcionario_id} helperText={errors.funcionario_id?.message}
-              InputProps={{ startAdornment: <InputAdornment position="start"><SupervisorAccount fontSize="small" /></InputAdornment> }}
-              sx={fieldSx}
+              Cancelar
+            </Button>
+            <Button type="submit" variant="contained" disabled={loading}>
+              {loading ? "Salvando..." : id ? "Atualizar" : "Abrir Comanda"}
+            </Button>
+          </Box>
+        )}
+        {/* Botão voltar para modo visualização */}
+        {isReadOnly && (
+          <Box sx={{ mt: 3, display: "flex", justifyContent: "flex-end" }}>
+            <Button
+              variant="outlined"
+              onClick={handleCancel}
+              disabled={loading}
             >
-              {funcionariosMock.map((f) => (
-                <MenuItem key={f.id} value={f.id}>{f.nome}</MenuItem>
-              ))}
-            </TextField>
-          )}
-        />
-
-        <Controller
-          name="cliente_id" control={control} defaultValue=""
-          render={({ field }) => (
-            <TextField
-              {...field} select
-              label="Cliente (opcional)" fullWidth margin="normal"
-              title="Cliente associado à comanda (pode ficar em branco)"
-              InputProps={{ startAdornment: <InputAdornment position="start"><Person fontSize="small" /></InputAdornment> }}
-              sx={fieldSx}
-            >
-              <MenuItem value=""><em>Sem cliente</em></MenuItem>
-              {clientesMock.map((c) => (
-                <MenuItem key={c.id} value={c.id}>{c.nome}</MenuItem>
-              ))}
-            </TextField>
-          )}
-        />
-
-        <Box sx={{ display: "flex", justifyContent: "flex-end", gap: 1, mt: 3 }}>
-          <Button onClick={() => navigate("/comandas")} color="inherit">Cancelar</Button>
-          <Button type="submit" variant="contained">Abrir Comanda</Button>
-        </Box>
+              Voltar
+            </Button>
+          </Box>
+        )}
       </Box>
+      {/* Diálogo de comanda em uso - Componente Exclusivo */}
+      <ComandaValidator
+        open={comandaDialog.open}
+        onClose={handleDialogCancel}
+        existingRecord={comandaDialog.record}
+        recordType="comanda"
+        onView={handleDialogView}
+        onEdit={handleDialogEdit}
+      />
     </PageLayout>
   );
 };
-
 export default ComandaForm;
